@@ -1,5 +1,5 @@
 //
-// Pente.c
+// MyPente.c
 // Copyright © 1997 Jeff Mallett
 //
 // Looking for game AIs?  Please contact me at:
@@ -21,7 +21,7 @@
 
 #define SEARCH_DEPTH 4
 
-#define XPLAYER
+//#define XPLAYER
 //#define WRITE
 
 #ifdef XPLAYER
@@ -31,6 +31,7 @@
 #ifdef WRITE
 	#include <stdio.h>
 	#include <stdlib.h>
+	extern FILE *outFile;
 	static Boolean gWrite = false;
 #endif
 
@@ -48,31 +49,30 @@ enum {
 #define MAX_CELLS			(31 + BORDERS) * (31 + BORDERS)
 
 #define ESTIMATE_PLUS	1
-#define WIN						9999
+#define WIN						2000
 #define CAPTURE_SCORE	240
 #define VULNERABLE    150
 
-static short CHAIN_SCORE[3][3][9] = { //[color][open][count]
- {
-	{ NA, NA, NA, NA, NA, NA, NA, NA, NA },
-	{ NA, NA, NA, NA, NA, NA, NA, NA, NA },
-	{ NA, NA, NA, NA, NA, NA, NA, NA, NA }
- },
- { // _FRIEND
-	//     2   3   4    5+
-	{ NA, -1,  3, 240, WIN, WIN, WIN, WIN, WIN },// 0 open
-	{ NA,-10, 16, 250, WIN, WIN, WIN, WIN, WIN },// 1 open
-	{ NA, -2, 40, 260, WIN, WIN, WIN, WIN, WIN } // 2 open
- },
- { // _ENEMY
-	//     2   3   4    5+
-	{ NA,  1, -1,-120,-WIN,-WIN,-WIN,-WIN,-WIN },// 0 open
-	{ NA, 10, -8,-125,-WIN,-WIN,-WIN,-WIN,-WIN },// 1 open
-	{ NA,  2,-30,-130,-WIN,-WIN,-WIN,-WIN,-WIN } // 2 open
- }
+static short CHAIN_SCORE2[3][3] = { //[color][open]
+	{ NA, NA, NA },
+	{ -1, -9, -2 }, // FRIEND
+	{  1,  9,  2 }  // ENEMY
+};
+static short CHAIN_SCORE3[3][3] = { //[color][open]
+	{ NA, NA, NA },
+	{  3, 16, 40 }, // FRIEND
+	{ -2,-10,-30 }  // ENEMY
+};
+static short CHAIN_SCORE4[3][3] = { //[color][open]
+	{   NA,  NA,  NA },
+	{  230, 240, 250 }, // FRIEND
+	{ -150,-155,-160 }  // ENEMY
+};
+static short CHAIN_SCORE5[3] = { //[color]
+	NA, WIN, -WIN
 };
 //                                  1   2   3   4
-static short BLOCK_SCORE[5] = { NA, 0, 10, 10, 20};
+static short BLOCK_SCORE[5] = { NA, 0, 14, 14, 22};
 static short THREATS[] = {
   NA, NA,
   25, // 2: tria
@@ -221,8 +221,10 @@ void Pente(
 	*claimVictory = false;
 
 	if (playingFirst) { // *** MOVE 1
-		gBoard[TRANSLATE(0, 0)] = _FRIEND;
 		move.h = move.v = 0;
+		pSq = &gBoard[TRANSLATE(0, 0)];
+		*pSq = _FRIEND;
+		UPDATE_ENDPOINTS(pSq, gFirstStone, gLastStone);
 		*yourMove = move;
 		gMoveNum = 1;
 		return;
@@ -234,10 +236,6 @@ void Pente(
 	UPDATE_ENDPOINTS(pSq, gFirstStone, gLastStone);
 	++gMoveNum;
 
-#ifdef WRITE
-	gWrite = (opponentsMove.h == 2 && opponentsMove.v == -1);
-#endif
-	
 	if (gMoveNum == 1) { // *** MOVE 2
 		move.h = move.v = -2;
 		pSq = &gBoard[TRANSLATE(-2, -2)];
@@ -349,6 +347,7 @@ void Pente(
 	}
 	
 	*pBestMove = _FRIEND;
+	UPDATE_ENDPOINTS(pBestMove, gFirstStone, gLastStone);
 	i = GET_INDEX(pBestMove);
 	move.h = GET_X(i);
 	move.v = GET_Y(i);
@@ -415,7 +414,6 @@ short AddStone(short alpha, short beta, short *pSq,
 	short saveScore = gScore;
 	
 #ifdef WRITE
-	extern FILE *outFile;
 	if (gWrite) {
 		short i;
 		for (i=0; i<gStartDepth-depth; i++)
@@ -460,21 +458,24 @@ short AddStone(short alpha, short beta, short *pSq,
 				if (EMPTY(*pNewSq))
 					++open;
 			}
-			gScore += CHAIN_SCORE[color][open][x];
 			
 			switch (x) {
 				case 1: // 2-in-a-row
+					gScore += CHAIN_SCORE2[color][open];
 					if (open == 1)
 						++vulnerable;
 					break;
 				case 2: // 3-in-a-row
+					gScore += CHAIN_SCORE3[color][open];
 					if (open == 2)
 						threats += 2; // tria = 2
 					break;
 				case 3: // 4-in-a-row
+					gScore += CHAIN_SCORE4[color][open];
 					threats += open * 3; // tessera = 6, half-open = 3
 					break;
 				default:  // 5-in-a-row (or more)
+					gScore += CHAIN_SCORE5[color];
 					threats = -99; // game over
 					break;
 			}
@@ -483,7 +484,11 @@ short AddStone(short alpha, short beta, short *pSq,
 			x = 1;
 			for (pNewSq += *d; *pNewSq == opponent; pNewSq += *d)
 				++x;
-			if (x == 2 && *pNewSq == color) {
+				
+			if (EMPTY(*pNewSq)) {
+				blocks += BLOCK_SCORE[x];
+				
+			} else if (x == 2 && *pNewSq == color) {
 				t = CAPTURE_SCORE;
 				if (color != _FRIEND)
 					t = -t;
@@ -506,8 +511,6 @@ short AddStone(short alpha, short beta, short *pSq,
 					PUSH_SQ(pNewSq);
 					*pNewSq = _EMPTY;
 				}
-			} else {
-				blocks += BLOCK_SCORE[x];
 			}
 		}
 	} while (++d != gDirectionsEnd);
