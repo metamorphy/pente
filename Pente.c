@@ -9,25 +9,19 @@ enum { FRIEND = 0x0001,
        ENEMY = 0x0002,
        EMPTY = 0x0004,
        EMPTY_ADJACENT = 0x0008,
-       WALL = 0x0010 //###
+       WALL = 0x0010
 };
 
 //#define WRITE
 #define SEARCH_DEPTH 4
 
-#ifdef WRITE
-	#include <stdio.h>
-	#include <stdlib.h>
-#endif
-
-#define BORDER 1
-#define BORDERS 2
-
-#define INFINITY	32600
-
-#define NA 0
-
+#define BORDER			1
+#define BORDERS			2
+#define INFINITY		32600
+#define NA				0
 #define CAPTURE_SCORE	60
+#define ESTIMATE_PLUS	1
+
 static short CHAIN_SCORE[3][9] = {
    //      2   3    4   5+
 	{ NA, -1,  2,  60, 500, 500, 500, 500, 500 },// 0 open
@@ -38,17 +32,18 @@ static short BLOCK_SCORE[5] = { NA, 0, 4, 20, 100 };
 
 static short gEstimates[32*32], *gEstimatesStart, *gEstimatesEnd;
 static short gBoard[32*32], *gBoardStart, *gBoardEnd;
-static short gAdjacent[32*32], *gAdjacentStart, *gAdjacentEnd;
 static short gDirections[8], *gDirectionsEnd;
+
 static short gMoveNum, gScore;
 static short *gKillers[SEARCH_DEPTH];
 
-#define ADJUST(a)		( (a) + gBoardHalfSize + BORDER ) //### Optimize w/ gAdjustment
+static short gAdjustment;
+#define ADJUST(a)		( (a) + gAdjustment )
 #define TRANSLATE(x, y)	(gSideLength * ADJUST(y) + ADJUST(x))
 
 #define GET_INDEX(p)	((p) - gBoard)
-#define GET_X(i)		( ((i) % gSideLength) - gBoardHalfSize - BORDER )
-#define GET_Y(i)		( ((i) / gSideLength) - gBoardHalfSize - BORDER )
+#define GET_X(i)		( ((i) % gSideLength) - gAdjustment )
+#define GET_Y(i)		( ((i) / gSideLength) - gAdjustment )
 
 #define OPPONENT(side)	(3 - (side))
 
@@ -83,8 +78,6 @@ static unsigned long *gChangesEnd; // Pointer into gChanges
 #define TOP				*gChangesEnd
 
 
-void AddToAdjacent(short i);
-void RemoveFromAdjacent(short i);
 short AddStone(short alpha, short beta, short *pSq, short color, short depth,
 				short capturesFriend, short capturesEnemy);
 long MyFindCaptures(Capture capture[], short *pSq, short us, short them);
@@ -101,7 +94,7 @@ void InitPente(
 							/* all coordinates between -boardHalfSize
 								and +boardHalfSize */
 ) {
-	short i, *pSq;
+	short i, j, *pSq;
 	
 	gBoardHalfSize = boardHalfSize;
 	gSideLength = boardHalfSize * 2 + 1 + BORDERS;
@@ -119,21 +112,28 @@ void InitPente(
 	gBoardMax = gSideLength * gSideLength;
 	i = (gSideLength + 1) * BORDER;
 	gBoardStart = &gBoard[i];
-	gBoardEnd = &gBoard[gBoardMax - i];	
+	gBoardEnd = &gBoard[gBoardMax - i];
 	gEstimatesStart = &gEstimates[i];
 	gEstimatesEnd = &gEstimates[gBoardMax - i];
-	gAdjacentStart = &gAdjacent[i];
-	gAdjacentEnd = &gAdjacent[gBoardMax - i];
 	
-	for (pSq = gBoard; pSq != &gBoard[gBoardMax]; ++pSq)
+	pSq = gBoard;
+	do {
+		*pSq = WALL;
+	} while (++pSq != gBoardStart);
+	do {
 		*pSq = EMPTY;
-	for (pSq = gAdjacent; pSq != &gAdjacent[gBoardMax]; ++pSq)
-		*pSq = 0;
+	} while (++pSq != gBoardEnd);
+	do {
+		*pSq = WALL;
+	} while (++pSq < &gBoard[gBoardMax]);
+	for (i = BORDER + boardHalfSize * 2 + 1; i<gBoardMax-gSideLength; i += gSideLength)
+		for (j=0; j<BORDERS; ++j)
+			gBoard[i+j] = WALL;
 		
-	// ### Make walls
 	
 	gCumCapturesFriend = gCumCapturesEnemy = 0;
 	gMoveNum = 0;
+	gAdjustment = gBoardHalfSize + BORDER;
 }
 
 void Pente(
@@ -165,7 +165,6 @@ void Pente(
 	
 	i = TRANSLATE(opponentsMove.h, opponentsMove.v);
 	gBoard[i] = ENEMY;
-	AddToAdjacent(i);
 	++gMoveNum;
 
 	if (gMoveNum == 1) { // *** MOVE 2
@@ -199,10 +198,10 @@ void Pente(
 			do {
 				pNewSq = pSq + *d;
 				if (_EMPTY(*pNewSq)) {
-					gEstimates[GET_INDEX(pNewSq)]++;
+					gEstimates[GET_INDEX(pNewSq)] += ESTIMATE_PLUS;
 					pNewSq += *d;
 					if (_EMPTY(*pNewSq)) {
-						gEstimates[GET_INDEX(pNewSq)]++;
+						gEstimates[GET_INDEX(pNewSq)] += ESTIMATE_PLUS;
 					}
 				}
 			} while (++d != gDirectionsEnd);
@@ -213,7 +212,7 @@ void Pente(
 	bestScore = -INFINITY;
 	pBestMove = NULL;
 	for (pSq = gBoardStart; pSq != gBoardEnd; ++pSq)
-		if (_ON_BOARD(*pSq) && gEstimates[GET_INDEX(pSq)]) {
+		if (gEstimates[GET_INDEX(pSq)]) {
 			gScore = gEstimates[GET_INDEX(pSq)];
 			score = AddStone(-INFINITY, -bestScore, pSq, FRIEND, SEARCH_DEPTH-1,
 							gCumCapturesFriend, gCumCapturesEnemy);
@@ -222,15 +221,26 @@ void Pente(
 				pBestMove = pSq;
 			}
 		}
+		
 	if (bestScore == -INFINITY) {
-		// ###
-		DebugStr("\p no move found - Pente");
-		return;  //no move
+		for (pSq = gBoardStart; pSq != gBoardEnd; ++pSq)
+			if (_EMPTY(*pSq) && !gEstimates[GET_INDEX(pSq)]) {
+				gScore = 0;
+				score = AddStone(-INFINITY, -bestScore, pSq, FRIEND, SEARCH_DEPTH-1,
+								gCumCapturesFriend, gCumCapturesEnemy);
+				if (score > bestScore) {
+					bestScore = score;
+					pBestMove = pSq;
+				}
+			}
+		if (bestScore == -INFINITY) {
+			DebugStr("\p no move found - Pente");
+			return;  //no move
+		}
 	}
 	
 	*pBestMove = FRIEND;
 	i = GET_INDEX(pBestMove);
-	AddToAdjacent(i);
 	move.h = GET_X(i);
 	move.v = GET_Y(i);
 	*yourMove = move;
@@ -251,24 +261,8 @@ void Pente(
 void TermPente(void) {
 }
 
-void AddToAdjacent(short i)
-{
-	short *pASq = &gAdjacent[i];
-	short *d = gDirections;
-	do {
-		++*(pASq + *d);
-	} while (++d != gDirectionsEnd);
-}
-
-void RemoveFromAdjacent(short i)
-{
-	short *pASq = &gAdjacent[i];
-	short *d = gDirections;
-	do {
-		--*(pASq + *d);
-	} while (++d != gDirectionsEnd);
-}
-
+#include <stdio.h>
+#include <stdlib.h>
 // gScore is absolute: + for FRIEND
 // returns score of how good it is for color
 // alpha and beta apply for the opponent after the move is made
@@ -276,10 +270,9 @@ short AddStone(short alpha, short beta, short *pSq, short color, short depth,
 				short capturesFriend, short capturesEnemy)
 {
 	short v, x, *pNewSq, bestScore, saveScore, *d, *killer, t, open;
-	//short count[3];
+	short count[3];
 	short opponent = OPPONENT(color);
 	short score = 0;
-	short *pASq;
 	
 #ifdef WRITE
 	extern FILE *outFile;
@@ -294,7 +287,6 @@ short AddStone(short alpha, short beta, short *pSq, short color, short depth,
 	START_SAVE;
 	PUSH_SQ(pSq);
 	*pSq = color; // Add stone
-	AddToAdjacent(GET_INDEX(pSq));
 	
 	d = gDirections;
 	do {
@@ -381,21 +373,17 @@ short AddStone(short alpha, short beta, short *pSq, short color, short depth,
 			}
 		}
 		
-		pASq = gAdjacentStart;
-		for (pSq = gBoardStart; pSq != gBoardEnd; ++pSq, ++pASq) {
-			if (*pASq && _EMPTY(*pSq) && pSq != killer) {
-				//count[FRIEND] = count[ENEMY] = 0;
+		for (pSq = gBoardStart; pSq != gBoardEnd; ++pSq) {
+			if (_EMPTY(*pSq) && pSq != killer) {
+				count[FRIEND] = count[ENEMY] = 0;
 				d = gDirections;
-				/*
-				if (*pASq == 1) {
-					do {
-						pNewSq = pSq + *d;
-						if (_OCCUPIED(*pNewSq)) {
-							if (count[*pNewSq]++ || *(pNewSq + *d) == *pNewSq)
-								break;
-						}
-					} while (++d != gDirectionsEnd);
-				}*/
+				do {
+					pNewSq = pSq + *d;
+					if (_OCCUPIED(*pNewSq)) {
+						if (count[*pNewSq]++ || *(pNewSq + *d) == *pNewSq)
+							break;
+					}
+				} while (++d != gDirectionsEnd);
 				if (d != gDirectionsEnd) {
 					saveScore = gScore;
 						t = AddStone(-beta, -alpha, pSq, opponent, depth, capturesFriend, capturesEnemy);
@@ -436,8 +424,6 @@ RESTORE:
 	while (POP) {
 		pSq = (short *)TOP;
 		*pSq = POP;
-		if (_OCCUPIED(*pSq))
-			RemoveFromAdjacent(GET_INDEX(pSq));
 	}
 
 #ifdef WRITE
