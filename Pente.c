@@ -2,18 +2,27 @@
 // Pente.c
 // Copyright © 1997 Jeff Mallett
 //
-// For game AIs, contact me at: jeffm@zillions-of-games.com
+// Looking for game AIs?  Please contact me at:
 //
-// This is my solution to the Pente¨ Programmer's Challenge
+//    jeffm@zillions-of-games.com
+//
+// This is my solution to the Nov. '97 Programmer's Challenge.
+// It plays nxn Pente¨.
 //
 // Do a depth=1 search to sort moves.  Then do a higher
 //  depth alpha-beta search to select the best move.
+//
+// Plays for score rather than to win.  For example,
+//  doesn't try to win by getting 5 captures since
+//  there is no score incentive for this.  It could be
+//  retuned to play for a win instead.
 
 #include "Pente.h"
 
+#define SEARCH_DEPTH 4
+
 #define XPLAYER
 //#define WRITE
-#define SEARCH_DEPTH 4
 
 #ifdef XPLAYER
 	#include "PenteX.h"
@@ -22,22 +31,26 @@
 #ifdef WRITE
 	#include <stdio.h>
 	#include <stdlib.h>
+	static Boolean gWrite = false;
 #endif
 
 enum {
-	FRIEND = 0x0001,
-	ENEMY  = 0x0002,
-	EMPTY  = 0x0004,
-	WALL   = 0x0008
+	_FRIEND = 0x0001,
+	_ENEMY  = 0x0002,
+	_EMPTY  = 0x0004,
+	_WALL   = 0x0008
 };
 
 #define BORDER				1
 #define BORDERS				2
 #define INFINITY			32600
 #define NA						0
+#define MAX_CELLS			(31 + BORDERS) * (31 + BORDERS)
+
 #define ESTIMATE_PLUS	1
 #define WIN						9999
 #define CAPTURE_SCORE	240
+#define VULNERABLE    150
 
 static short CHAIN_SCORE[3][3][9] = { //[color][open][count]
  {
@@ -45,31 +58,36 @@ static short CHAIN_SCORE[3][3][9] = { //[color][open][count]
 	{ NA, NA, NA, NA, NA, NA, NA, NA, NA },
 	{ NA, NA, NA, NA, NA, NA, NA, NA, NA }
  },
- { // FRIEND
+ { // _FRIEND
 	//     2   3   4    5+
 	{ NA, -1,  3, 240, WIN, WIN, WIN, WIN, WIN },// 0 open
-	{ NA,-15, 16, 280, WIN, WIN, WIN, WIN, WIN },// 1 open
-	{ NA, -2, 45, 800, WIN, WIN, WIN, WIN, WIN } // 2 open
+	{ NA,-10, 16, 250, WIN, WIN, WIN, WIN, WIN },// 1 open
+	{ NA, -2, 40, 260, WIN, WIN, WIN, WIN, WIN } // 2 open
  },
- { // ENEMY
+ { // _ENEMY
 	//     2   3   4    5+
 	{ NA,  1, -1,-120,-WIN,-WIN,-WIN,-WIN,-WIN },// 0 open
-	{ NA, 15, -8,-140,-WIN,-WIN,-WIN,-WIN,-WIN },// 1 open
-	{ NA,  2,-40,-800,-WIN,-WIN,-WIN,-WIN,-WIN } // 2 open
+	{ NA, 10, -8,-125,-WIN,-WIN,-WIN,-WIN,-WIN },// 1 open
+	{ NA,  2,-30,-130,-WIN,-WIN,-WIN,-WIN,-WIN } // 2 open
  }
 };
-static short BLOCK_SCORE[3][5] = {
-	{ NA, NA, NA, NA, NA },
- //     1   2   3   4
-	{ NA, 0, 10, 30, 110 }, // FRIEND
-	{ NA, 0,-10,-30,-110 }  // ENEMY
+//                                  1   2   3   4
+static short BLOCK_SCORE[5] = { NA, 0, 10, 10, 20};
+static short THREATS[] = {
+  NA, NA,
+  25, // 2: tria
+  30, // 3: half-open four
+  350, // 4: double trias
+  370, // 5: tria + half-open four
+  450, // 6: tessera or 2 half-open fours
+  500, 500, 500, 500, 500, 500, 500, 500, 500, 500
 };
 
-static short gPreScore[33*33], gEstimates[33*33];
+static short gPreScore[MAX_CELLS], gEstimates[MAX_CELLS];
 static short *gEstimatesStart, *gEstimatesEnd;
-static short gBoard[33*33], *gBoardStart, *gBoardEnd;
+static short gBoard[MAX_CELLS], *gBoardStart, *gBoardEnd;
 static short *gFirstStone, *gLastStone;
-static short *gKillers[SEARCH_DEPTH];
+static short *gKillers[SEARCH_DEPTH], gPreviousThreats;
 static short gDirections[8], *gDirectionsEnd;
 static short gMoveNum, gScore, gStartDepth;
 static short gBoardHalfSize, gSideLength, gBoardMax;
@@ -90,27 +108,14 @@ static short gAdjustment, gSE;
 
 #define OPPONENT(side)	(3 - (side))
 
-#define VALUE(x) gBoard[x]
-
-#define _ON_BOARD(x) (((x) & WALL) == 0)
-#define ON_BOARD(i) _ON_BOARD(gBoard[i])
-
-#define _OCCUPIED(x) ((x) & (FRIEND|ENEMY))
-#define OCCUPIED(i) _OCCUPIED(gBoard[i])
-
-#define _EMPTY(x) ((x) & EMPTY)
-#define EMPTY(i) _EMPTY(gBoard[i])
-
-#define HAS_STONE_OF_COLOR(x, c) (gBoard[x] == (c))
-
+#define OCCUPIED(x) 		((x) & (_FRIEND | _ENEMY))
+#define EMPTY(x)				((x) == _EMPTY)
 
 // gChanges -- Array of unsigned longs containing data to
 //  undo moves
 //     list of:
-//          <pointer to square> <old square value>
+//          <pointer to position> <old position value>
 //     terminated by a OL
-//   The first position will be the drop square and the
-//     others will be flips
 static unsigned long gChanges[256], *gChangesEnd;
 #define PUSH(x)				*(gChangesEnd++) = (x)
 #define START_SAVE		PUSH(0L)
@@ -170,28 +175,23 @@ void InitPente(
 	
 	pSq = gBoard;
 	do {
-		*pSq = WALL;
+		*pSq = _WALL;
 	} while (++pSq != gBoardStart);
 	do {
-		*pSq = EMPTY;
+		*pSq = _EMPTY;
 	} while (++pSq != gBoardEnd);
 	do {
-		*pSq = WALL;
+		*pSq = _WALL;
 	} while (++pSq < &gBoard[gBoardMax]);
 	for (i = BORDER + boardHalfSize * 2 + 1;
 				i<gBoardMax-gSideLength; i += gSideLength)
 		for (j=0; j<BORDERS; ++j)
-			gBoard[i+j] = WALL;
+			gBoard[i+j] = _WALL;
 		
 	gCumCapturesFriend = gCumCapturesEnemy = gMoveNum = 0;
 	gAdjustment = gBoardHalfSize + BORDER;
 	
-	gStartDepth = SEARCH_DEPTH;
-	if (boardHalfSize >= 13)
-		gStartDepth -= 2;
-	if (gStartDepth < 2)
-		gStartDepth = 2;
-	--gStartDepth;
+	gStartDepth = SEARCH_DEPTH - 1;
 }
 
 // ***** 
@@ -212,7 +212,6 @@ void Pente(
 ) {
 	Point move;
 	Capture opponentCaptures[8];
-	Boolean fiveInARow;
 	
 	short *pSq, *pNewSq, *d;
 	short score, bestScore, i;
@@ -222,7 +221,7 @@ void Pente(
 	*claimVictory = false;
 
 	if (playingFirst) { // *** MOVE 1
-		gBoard[TRANSLATE(0, 0)] = FRIEND;
+		gBoard[TRANSLATE(0, 0)] = _FRIEND;
 		move.h = move.v = 0;
 		*yourMove = move;
 		gMoveNum = 1;
@@ -231,14 +230,18 @@ void Pente(
 	
 	i = TRANSLATE(opponentsMove.h, opponentsMove.v);
 	pSq = &gBoard[i];
-	*pSq = ENEMY;
+	*pSq = _ENEMY;
 	UPDATE_ENDPOINTS(pSq, gFirstStone, gLastStone);
 	++gMoveNum;
 
+#ifdef WRITE
+	gWrite = (opponentsMove.h == 2 && opponentsMove.v == -1);
+#endif
+	
 	if (gMoveNum == 1) { // *** MOVE 2
 		move.h = move.v = -2;
 		pSq = &gBoard[TRANSLATE(-2, -2)];
-		*pSq = FRIEND;
+		*pSq = _FRIEND;
 		UPDATE_ENDPOINTS(pSq, gFirstStone, gLastStone);
 		*yourMove = move;
 		gMoveNum = 2;
@@ -268,7 +271,7 @@ void Pente(
 			}
 		}
 		pSq = &gBoard[TRANSLATE(move.h, move.v)];
-		*pSq = FRIEND;
+		*pSq = _FRIEND;
 		UPDATE_ENDPOINTS(pSq, gFirstStone, gLastStone);
 		*yourMove = move;
 		gMoveNum = 3;
@@ -279,19 +282,19 @@ void Pente(
 
 	gCumCapturesEnemy +=
 			MyFindCaptures(opponentCaptures, &gBoard[i],
-											ENEMY, FRIEND);
+											_ENEMY, _FRIEND);
 
 	for (pSq = gEstimatesStart; pSq != gEstimatesEnd; ++pSq)
 		*pSq = 0;
 	for (pSq = gFirstStone; pSq <= gLastStone; ++pSq)
-		if (_OCCUPIED(*pSq)) {
+		if (OCCUPIED(*pSq)) {
 			d = gDirections;
 			do {
 				pNewSq = pSq + *d;
-				if (_EMPTY(*pNewSq)) {
+				if (EMPTY(*pNewSq)) {
 					gEstimates[GET_INDEX(pNewSq)] += ESTIMATE_PLUS;
 					pNewSq += *d;
-					if (_EMPTY(*pNewSq)) {
+					if (EMPTY(*pNewSq)) {
 						gEstimates[GET_INDEX(pNewSq)] += ESTIMATE_PLUS;
 					}
 				}
@@ -303,7 +306,7 @@ void Pente(
 			i = GET_INDEX(pSq);
 			gScore = gEstimates[i];
 			gPreScore[i] = AddStone(-INFINITY, INFINITY, pSq,
-												FRIEND, 0, gCumCapturesFriend,
+												_FRIEND, 0, gCumCapturesFriend,
 												gCumCapturesEnemy, gFirstStone,
 												gLastStone);
 		}
@@ -316,7 +319,7 @@ void Pente(
 	while (pSq) {
 		i = GET_INDEX(pSq);
 		gScore = gEstimates[i];
-		score = AddStone(-INFINITY, -bestScore, pSq, FRIEND,
+		score = AddStone(-INFINITY, -bestScore, pSq, _FRIEND,
 							gStartDepth, gCumCapturesFriend,
 							gCumCapturesEnemy, gFirstStone, gLastStone);
 		gEstimates[i] = -1; // searched
@@ -329,11 +332,11 @@ void Pente(
 		
 	if (bestScore == -INFINITY) {
 		for (pSq = gBoardStart; pSq != gBoardEnd; ++pSq)
-			if (_EMPTY(*pSq) && !gEstimates[GET_INDEX(pSq)]) {
+			if (EMPTY(*pSq) && !gEstimates[GET_INDEX(pSq)]) {
 				gScore = 0;
-				score = AddStone(-INFINITY, -bestScore, pSq, FRIEND, gStartDepth,
-									gCumCapturesFriend, gCumCapturesEnemy,
-									gFirstStone, gLastStone);
+				score = AddStone(-INFINITY, -bestScore, pSq, _FRIEND,
+									gStartDepth, gCumCapturesFriend,
+									gCumCapturesEnemy, gFirstStone, gLastStone);
 				if (score > bestScore) {
 					bestScore = score;
 					pBestMove = pSq;
@@ -345,7 +348,7 @@ void Pente(
 		}
 	}
 	
-	*pBestMove = FRIEND;
+	*pBestMove = _FRIEND;
 	i = GET_INDEX(pBestMove);
 	move.h = GET_X(i);
 	move.v = GET_Y(i);
@@ -354,15 +357,13 @@ void Pente(
 
 	// find captures
 	*numCaptures = MyFindCaptures(claimCaptures, pBestMove,
-										FRIEND, ENEMY);
+										_FRIEND, _ENEMY);
 	gCumCapturesFriend += *numCaptures;
 	if (gCumCapturesFriend >= 5) {
 		*claimVictory = true;
-		return;
+	} else {
+		*claimVictory = MyFindFive(pBestMove, _FRIEND);
 	}
-
-	fiveInARow = MyFindFive(pBestMove, FRIEND);
-	*claimVictory = fiveInARow;
 }
 
 // ***** 
@@ -396,36 +397,39 @@ short * ChooseNextMove()
 // ***** 
 // ***** AddStone
 // ***** 
-// gScore is absolute: + for FRIEND
+// Alpha-beta search routine
 // returns score of how good it is for color
 // alpha and beta apply for the opponent after the move
 //   is made
+// gScore is absolute: + for _FRIEND
 short AddStone(short alpha, short beta, short *pSq,
 				short color, short depth, short capturesFriend,
 				short capturesEnemy, short *firstStone,
 				short *lastStone)
 {
-	short x, *pNewSq, bestScore, saveScore, *d, *killer;
-	short t, open, *pEnd;
-	short count[3];
+	register short *pNewSq, *d;
+	short x, bestScore, t, *pEnd;
+	short open, *killer;
+	short threats, blocks, vulnerable;
 	short opponent = OPPONENT(color);
+	short saveScore = gScore;
 	
 #ifdef WRITE
 	extern FILE *outFile;
-	short i;
-	for (i=0; i<gStartDepth-depth; i++)
-		fprintf(outFile, "  ");
-	i = GET_INDEX(pSq);
-	fprintf(outFile,"d=%d c=%d s=%d a=%d b=%d xy=%d,%d\n",
-					depth, color, gScore, alpha, beta,
-					(short)GET_X(i), (short)GET_Y(i));
-	fflush(outFile);
+	if (gWrite) {
+		short i;
+		for (i=0; i<gStartDepth-depth; i++)
+			fprintf(outFile, "  ");
+		i = GET_INDEX(pSq);
+		fprintf(outFile,"d=%d c=%d s=%d a=%d b=%d xy=%d,%d\n",
+						depth, color, gScore, alpha, beta,
+						(short)GET_X(i), (short)GET_Y(i));
+		fflush(outFile);
+	}
 #endif	
-	START_SAVE;
-	PUSH_SQ(pSq);
-	*pSq = color; // Add stone
-	UPDATE_ENDPOINTS(pSq, firstStone, lastStone);
 	
+	START_SAVE;
+	threats = blocks = vulnerable = 0;
 	d = gDirections;
 	do {
 		pNewSq = pSq + *d;
@@ -436,12 +440,12 @@ short AddStone(short alpha, short beta, short *pSq,
 				open = 0;
 				for (pNewSq += *d; *pNewSq == color; pNewSq += *d)
 					++x;
-				if (_EMPTY(*pNewSq))
+				if (EMPTY(*pNewSq))
 					open = 1;
 				for (pNewSq = pSq + *(d+4); *pNewSq == color;
 							pNewSq += *(d+4))
 					++x;
-				if (_EMPTY(*pNewSq))
+				if (EMPTY(*pNewSq))
 					++open;
 			} else {
 				t = *(pSq + *(d-4));
@@ -449,16 +453,31 @@ short AddStone(short alpha, short beta, short *pSq,
 					continue;
 				x = 1;
 				open = 0;
-				if (_EMPTY(t))
+				if (EMPTY(t))
 					open = 1;
 				for (pNewSq += *d; *pNewSq == color; pNewSq += *d)
 					++x;
-				if (_EMPTY(*pNewSq))
+				if (EMPTY(*pNewSq))
 					++open;
 			}
 			gScore += CHAIN_SCORE[color][open][x];
-			if (x >= 4) // 5-in-a-row
-				depth = 0; // game over
+			
+			switch (x) {
+				case 1: // 2-in-a-row
+					if (open == 1)
+						++vulnerable;
+					break;
+				case 2: // 3-in-a-row
+					if (open == 2)
+						threats += 2; // tria = 2
+					break;
+				case 3: // 4-in-a-row
+					threats += open * 3; // tessera = 6, half-open = 3
+					break;
+				default:  // 5-in-a-row (or more)
+					threats = -99; // game over
+					break;
+			}
 			
 		} else if (*pNewSq == opponent) { // Next to enemy
 			x = 1;
@@ -466,36 +485,61 @@ short AddStone(short alpha, short beta, short *pSq,
 				++x;
 			if (x == 2 && *pNewSq == color) {
 				t = CAPTURE_SCORE;
-				if (color != FRIEND)
+				if (color != _FRIEND)
 					t = -t;
 				gScore += t;
 				
-				pNewSq = pSq + *d;
-				PUSH_SQ(pNewSq);
-				*pNewSq = EMPTY;
-				pNewSq += *d;
-				PUSH_SQ(pNewSq);
-				*pNewSq = EMPTY;
-				if (color == FRIEND) {
-					if (++capturesFriend >= 5)
-						depth = 0; // game over
-				} else { // color == ENEMY
-					if (++capturesEnemy >= 5)
-						depth = 0; // game over
+				if (color == _FRIEND) {
+					if (++capturesFriend >= 5) {
+						threats = -99; // game over
+					}
+				} else { // color == _ENEMY
+					if (++capturesEnemy >= 5) {
+						threats = -99; // game over
+					}
+				}
+				if (depth) {
+					pNewSq = pSq + *d;
+					PUSH_SQ(pNewSq);
+					*pNewSq = _EMPTY;
+					pNewSq += *d;
+					PUSH_SQ(pNewSq);
+					*pNewSq = _EMPTY;
 				}
 			} else {
-				gScore += BLOCK_SCORE[color][x];
+				blocks += BLOCK_SCORE[x];
 			}
 		}
 	} while (++d != gDirectionsEnd);
+		
+	if (threats < 0) {
+		// Game over
+		bestScore = gScore;
+		if (color != _FRIEND)
+			bestScore = -bestScore;
+		goto RESTORE;
+	}
+			
+	// Not forced to make a bad move
+	if (color == _FRIEND) {
+		if (gScore < saveScore)
+			gScore = saveScore;
+	} else if (gScore > saveScore)
+		gScore = saveScore;
 	
 	if (depth) {
-		--depth;
+		// Add stone
+		PUSH_SQ(pSq);
+		*pSq = color;
+		UPDATE_ENDPOINTS(pSq, firstStone, lastStone);
+
+		--depth; 
+		gPreviousThreats = threats;
 		bestScore = -INFINITY;
 		
 		// Killer move?
 		killer = gKillers[depth];
-		if (killer && _EMPTY(*killer)) {
+		if (killer && EMPTY(*killer)) {
 			saveScore = gScore;
 				bestScore = AddStone(-beta, -alpha, killer,
 											opponent, depth, capturesFriend,
@@ -520,16 +564,14 @@ short AddStone(short alpha, short beta, short *pSq,
 		if (pSq < gBoardStart)
 			pSq = gBoardStart;
 		do {
-			if (_EMPTY(*pSq) && pSq != killer) {
-				count[FRIEND] = count[ENEMY] = 0;
+			if (EMPTY(*pSq) && pSq != killer) {
 				d = gDirections;
 				do {
 					pNewSq = pSq + *d;
-					if (_OCCUPIED(*pNewSq)) {
-						if (count[*pNewSq]++ ||
-								*(pNewSq + *d) == *pNewSq)
-							break;
-					}
+					if (OCCUPIED(*pNewSq) &&
+								(*(pNewSq + *d) == *pNewSq ||
+								 *(pSq    - *d) == *pNewSq))
+						break;
 				} while (++d != gDirectionsEnd);
 				if (d != gDirectionsEnd) {
 					saveScore = gScore;
@@ -541,8 +583,10 @@ short AddStone(short alpha, short beta, short *pSq,
 						bestScore = t;
 						if (t > alpha) {
 #ifdef WRITE
-							fprintf(outFile, "       ....%d > %s\n",
-									t, (t>beta) ? "beta" : "alpha");
+							if (gWrite) {
+								fprintf(outFile, "       ....%d > %s\n",
+											t, (t>beta) ? "beta" : "alpha");
+							}
 #endif	
 							if (t >= beta) {
 								gKillers[depth] = pSq;
@@ -556,31 +600,53 @@ short AddStone(short alpha, short beta, short *pSq,
 				}
 			}
 		} while (++pSq <= pEnd);
+
+		if (bestScore == -INFINITY) {
+			++depth;
+			goto TERMINAL;
+		}
+		bestScore = -bestScore;
 #ifdef WRITE
 		++depth;
 #endif
-		if (bestScore == -INFINITY)
-			goto TERMINAL;
-		bestScore = -bestScore;
-	} else {
+		
+	} else { // !depth
 TERMINAL:
 		bestScore = gScore;
-		if (color != FRIEND)
+		if (color != _FRIEND)
 			bestScore = -bestScore;
-	}
 
+		// Winning threats
+		if (gPreviousThreats >= 5) {
+			bestScore -= THREATS[gPreviousThreats];
+		} else if (threats >= 5) {
+			bestScore += THREATS[threats];
+		} else if (gPreviousThreats == 4) {
+			bestScore -= THREATS[gPreviousThreats];
+		} else if (threats == 4) {
+			bestScore += THREATS[threats];
+		} else if (gPreviousThreats) {
+			bestScore -= THREATS[gPreviousThreats];
+		} else if (threats) {
+			bestScore += THREATS[threats];
+		}
+		bestScore += blocks - vulnerable * VULNERABLE;
+	}
+	
 RESTORE:	
-	// Restore
 	while (POP) {
 		pSq = (short *)TOP;
 		*pSq = POP;
 	}
-
+		
 #ifdef WRITE
-	for (i=0; i<gStartDepth-depth; i++)
-		fprintf(outFile, "  ");
-	fprintf(outFile,"==%d\n", bestScore);
-	fflush(outFile);
+	if (gWrite) {
+		short i;
+		for (i=0; i<gStartDepth-depth; i++)
+			fprintf(outFile, "  ");
+		fprintf(outFile,"==%d\n", bestScore);
+		fflush(outFile);
+	}
 #endif	
 
 	return bestScore;
@@ -601,7 +667,7 @@ long MyFindCaptures(Capture capture[], short *pSq,
 		if (*p1 == them) {
 			p2 = p1 + *d;
 			if (*p2 == them && *(p2 + *d) == us) {
-				*p1 = *p2 = EMPTY;
+				*p1 = *p2 = _EMPTY;
 				i = GET_INDEX(p1);
 				capture[myCaptures].stone1.h = GET_X(i);
 				capture[myCaptures].stone1.v = GET_Y(i);
@@ -625,13 +691,13 @@ Boolean MyFindFive(short *pSq, short color)
 	d = gDirections;
 	i = 0;
 	do {
-		x = 0;
+		x = 1;
 		for (pNewSq = pSq + *d; *pNewSq == color; pNewSq += *d)
 			++x;
 		for (pNewSq = pSq + *(d+4); *pNewSq == color;
 					pNewSq += *(d+4))
 			++x;
-		if (x >= 4)
+		if (x >= 5)
 			return true;
 		++d;
 	} while (++i < 4);
