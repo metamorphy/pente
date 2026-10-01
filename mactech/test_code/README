@@ -1,0 +1,18 @@
+README - PenteTest.c
+
+This test code provides a shell for checking out your Pente solution.
+
+It allows you to play against your solution.   Replace the file Pente.c 
+with your solution.  If you want to test multiple versions of your code against
+each other, you can also replace the file PenteHuman with your solution.
+
+The test code logs the moves to a file PenteDetail.out.
+
+NOTE:  There is no guarantee that the evaluation code will be the same as 
+this test code.  Your solution must satisfy all of the problem requirements 
+even if this test code does not exercise those requirements.
+
+-- Bob Boonstra
+-- boonstra@ultranet.com
+
+21 October, 1997

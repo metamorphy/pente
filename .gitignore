@@ -1,0 +1,10 @@
+/ignore/
+.DS_Store
+
+# Metrowerks CodeWarrior (classic Mac OS) debug symbols and project data
+*.xSYM
+*.dbg
+*.µ Data/
+
+# Personal info in the original 1997 contest submission
+/mactech/submission/ReadMe:Contact

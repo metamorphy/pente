@@ -1,0 +1,89 @@
+Player ¥ moved to (row,col) = (0,0) victory=0, numCaptures=0
+Player O moved to (row,col) = (-2,-2) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (0,4) victory=0, numCaptures=0
+Player O moved to (row,col) = (-2,0) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-2,-1) victory=0, numCaptures=0
+Player O moved to (row,col) = (-2,2) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (2,2) victory=0, numCaptures=0
+Player O moved to (row,col) = (-2,1) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-2,3) victory=0, numCaptures=0
+Player O moved to (row,col) = (0,2) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (1,1) victory=0, numCaptures=0
+Player O moved to (row,col) = (3,3) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-1,-1) victory=0, numCaptures=0
+Player O moved to (row,col) = (-1,2) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-3,2) victory=0, numCaptures=0
+Player O moved to (row,col) = (1,2) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (1,3) victory=0, numCaptures=0
+Player O moved to (row,col) = (3,1) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-1,5) victory=0, numCaptures=0
+Player O moved to (row,col) = (-2,6) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-4,1) victory=0, numCaptures=0
+Player O moved to (row,col) = (-1,4) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-5,0) victory=0, numCaptures=0
+Player O moved to (row,col) = (-6,-1) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-3,0) victory=0, numCaptures=0
+Player O moved to (row,col) = (-5,2) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-1,-2) victory=0, numCaptures=0
+Player O moved to (row,col) = (0,-3) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (0,3) victory=0, numCaptures=1
+removing stone1 (-1,2)
+removing stone2 (-2,1)
+Player O moved to (row,col) = (0,5) victory=0, numCaptures=1
+removing stone1 (0,4)
+removing stone2 (0,3)
+Player ¥ moved to (row,col) = (1,6) victory=0, numCaptures=1
+removing stone1 (0,5)
+removing stone2 (-1,4)
+Player O moved to (row,col) = (-1,4) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (0,4) victory=0, numCaptures=0
+Player O moved to (row,col) = (-1,2) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-3,1) victory=0, numCaptures=0
+Player O moved to (row,col) = (-3,-1) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-3,3) victory=0, numCaptures=0
+Player O moved to (row,col) = (-3,4) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-1,-3) victory=0, numCaptures=0
+Player O moved to (row,col) = (0,-1) victory=0, numCaptures=1
+removing stone1 (-1,-1)
+removing stone2 (-2,-1)
+Player ¥ moved to (row,col) = (-4,0) victory=0, numCaptures=1
+removing stone1 (-3,-1)
+removing stone2 (-2,-2)
+Player O moved to (row,col) = (-2,-1) victory=0, numCaptures=1
+removing stone1 (-3,0)
+removing stone2 (-4,1)
+Player ¥ moved to (row,col) = (-2,-2) victory=0, numCaptures=0
+Player O moved to (row,col) = (-1,-1) victory=0, numCaptures=0
+Player ¥ moved to (row,col) = (-3,-1) victory=0, numCaptures=0
+Player O moved to (row,col) = (-5,-1) victory=0, numCaptures=1
+removing stone1 (-4,0)
+removing stone2 (-3,1)
+Player ¥ moved to (row,col) = (-4,0) victory=0, numCaptures=0
+Player O moved to (row,col) = (-3,1) victory=1, numCaptures=1
+removing stone1 (-3,2)
+removing stone2 (-3,3)
+SECOND PLAYER HAS FIVE IN A ROW OR FIVE CAPTURES
+Final positions:
+    -9 -8 -7 -6 -5 -4 -3 -2 -1  0  1  2  3  4  5  6  7  8  9 
+-9                                                          
+-8                                                          
+-7                                                          
+-6                           O                              
+-5                           O  ¥     O                     
+-4                              ¥                           
+-3                           ¥     O        O               
+-2                        ¥  O  O     O  ¥        O         
+-1                     ¥  ¥  O        O     O  ¥            
+ 0                     O     O  ¥     O     ¥               
+ 1                                 ¥  O  ¥        ¥         
+ 2                                    ¥                     
+ 3                                 O     O                  
+ 4                                                          
+ 5                                                          
+ 6                                                          
+ 7                                                          
+ 8                                                          
+ 9                                                          
+
+Player 1(O) took 0 : 65804 microseconds, points = 6, score=5.934196.
+Player 2(¥) took 0 : 841516 microseconds, points = 5, score=4.158484.
